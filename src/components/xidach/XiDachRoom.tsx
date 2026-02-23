@@ -4,13 +4,13 @@ import { useEffect, useState, useCallback } from 'react'
 import { useXiDach } from '@/hooks/use-xidach'
 import { PlayingCard } from './PlayingCard'
 import { Button } from '@/components/ui/button'
-import { calculateScore, isNguLinh } from '@/lib/xidach-logic'
+import { calculateScore, getHandLabel } from '@/lib/xidach-logic'
 import {
     Copy, Volume2, VolumeX, Users, Clock, RefreshCw,
     Gamepad2, CircleDot, Crown, Eye, Target, Hand, XCircle,
     Trophy, Frown, Equal, Lock, ArrowLeft,
 } from 'lucide-react'
-import type { XiDachResult, CardStr } from '@/types/game'
+import type { XiDachResult, CardStr, CompareResult } from '@/types/game'
 
 interface XiDachRoomProps {
     roomId: string
@@ -52,7 +52,7 @@ interface SeatProps {
     score: number
     canSeeCards: boolean  // result phase reveals all
     revealedCards: number[] // cards permanently revealed by dealer
-    result?: XiDachResult
+    result?: CompareResult
     peekedCards: Set<number>  // local peek state
     onCardClick: (index: number) => void
 }
@@ -95,10 +95,13 @@ function Seat({
                 )}
             </div>
 
-            {/* Ngũ Linh badge */}
-            {allVisible && isNguLinh(cards) && (
-                <div className="px-2 py-0.5 rounded-full text-[10px] font-black text-yellow-900 bg-yellow-400">
-                    NGŨ LINH
+            {/* Special hand badge */}
+            {allVisible && getHandLabel(cards) && (
+                <div className={`px-2 py-0.5 rounded-full text-[10px] font-black ${getHandLabel(cards) === 'XÌ BÀN' ? 'text-white bg-gradient-to-r from-purple-500 to-pink-500' :
+                    getHandLabel(cards) === 'XÌ DÁCH' ? 'text-yellow-900 bg-gradient-to-r from-yellow-300 to-yellow-500' :
+                        'text-yellow-900 bg-yellow-400'
+                    }`}>
+                    {getHandLabel(cards)} {getHandLabel(cards) === 'XÌ BÀN' ? '(x3)' : getHandLabel(cards) === 'XÌ DÁCH' ? '(x2)' : ''}
                 </div>
             )}
 
@@ -123,8 +126,9 @@ function Seat({
 
             {/* Result */}
             {result && allVisible && (
-                <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1 ${RESULT_MAP[result].bg}`}>
-                    {RESULT_MAP[result].icon} {RESULT_MAP[result].text}
+                <div className={`px-2 py-0.5 rounded-full text-[10px] font-bold text-white flex items-center gap-1 ${RESULT_MAP[result.outcome].bg}`}>
+                    {RESULT_MAP[result.outcome].icon} {RESULT_MAP[result.outcome].text}
+                    {result.multiplier > 1 && <span className="font-black ml-0.5">x{result.multiplier}</span>}
                 </div>
             )}
         </div>
@@ -293,7 +297,7 @@ export function XiDachRoom({ roomId }: XiDachRoomProps) {
         isCurrentTurn: boolean
         status: string
         score: number
-        result?: XiDachResult
+        result?: CompareResult
         revealedCards: number[]
     }
 
@@ -325,7 +329,7 @@ export function XiDachRoom({ roomId }: XiDachRoomProps) {
             isCurrentTurn: game.current_turn === pid,
             status: p.status,
             score: p.score,
-            result: isResult ? (game.results[pid] as XiDachResult) : undefined,
+            result: isResult ? (game.results[pid] as unknown as CompareResult) : undefined,
             revealedCards: p.revealed_cards ?? [],
         })
     }
@@ -334,7 +338,7 @@ export function XiDachRoom({ roomId }: XiDachRoomProps) {
     const myCards = isDealer ? game.dealer_cards : (myHand?.cards ?? [])
     const myScore = calculateScore(myCards)
     const myStatus = isDealer ? game.dealer_status : (myHand?.status ?? 'playing')
-    const myResult = isResult && !isDealer ? (game.results[playerId] as XiDachResult) : undefined
+    const myResult = isResult && !isDealer ? (game.results[playerId] as unknown as CompareResult) : undefined
     const myRevealedCards = !isDealer ? (myHand?.revealed_cards ?? []) : []
 
     const showHitStand = isDealer
@@ -371,7 +375,7 @@ export function XiDachRoom({ roomId }: XiDachRoomProps) {
                 onCardClick={getCardClickHandler(o.id, false, o.revealedCards)}
             />
             {/* Per-player reveal button for dealer (only when player is done) */}
-            {isDealer && !o.isDealerSeat && !isPlayerFullyRevealed(o) && o.cards.length > 0 && (o.status === 'stand' || o.status === 'bust') && (
+            {isDealer && !o.isDealerSeat && !isPlayerFullyRevealed(o) && o.cards.length > 0 && o.status === 'stand' && !o.revealedCards?.length && (
                 <button
                     onClick={() => revealPlayer(o.id)}
                     className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-white/15 text-white/80 hover:bg-white/25 transition-colors"

@@ -1,7 +1,7 @@
 /**
  * Xì Dách (Vietnamese Blackjack) Game Logic
  */
-import type { Suit, Rank, Card, CardStr } from '@/types/game'
+import type { Suit, Rank, Card, CardStr, CompareResult } from '@/types/game'
 
 const SUITS: Suit[] = ['♠', '♥', '♦', '♣']
 const RANKS: Rank[] = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A']
@@ -95,12 +95,64 @@ export function isBlackjack(cards: CardStr[]): boolean {
 }
 
 /**
+ * Xì Dách: 2 cards = 1 Ace + 1 card worth 10 (10, J, Q, K).
+ * Multiplier: x2
+ */
+export function isXiDach(cards: CardStr[]): boolean {
+    if (cards.length !== 2) return false
+    const parsed = cards.map(strToCard)
+    const hasAce = parsed.some(c => c.rank === 'A')
+    const hasTen = parsed.some(c => ['10', 'J', 'Q', 'K'].includes(c.rank))
+    return hasAce && hasTen
+}
+
+/**
+ * Xì Bàn: 2 cards = 2 Aces.
+ * Multiplier: x3
+ */
+export function isXiBan(cards: CardStr[]): boolean {
+    if (cards.length !== 2) return false
+    const parsed = cards.map(strToCard)
+    return parsed.every(c => c.rank === 'A')
+}
+
+/**
  * Ngũ Linh: 5 cards with total ≤ 21.
  * Beats everything except another Ngũ Linh with a lower score.
  */
 export function isNguLinh(cards: CardStr[]): boolean {
     if (cards.length !== 5) return false
     return calculateScore(cards) <= 21
+}
+
+/**
+ * Get the hand rank for priority comparison.
+ * Higher rank = better hand.
+ */
+export function getHandRank(cards: CardStr[]): number {
+    if (isXiBan(cards)) return 4
+    if (isXiDach(cards)) return 3
+    if (isNguLinh(cards)) return 2
+    return 1 // normal
+}
+
+/**
+ * Get the multiplier for a hand.
+ */
+export function getMultiplier(cards: CardStr[]): number {
+    if (isXiBan(cards)) return 3
+    if (isXiDach(cards)) return 2
+    return 1
+}
+
+/**
+ * Get the special hand label.
+ */
+export function getHandLabel(cards: CardStr[]): string | null {
+    if (isXiBan(cards)) return 'XÌ BÀN'
+    if (isXiDach(cards)) return 'XÌ DÁCH'
+    if (isNguLinh(cards)) return 'NGŨ LINH'
+    return null
 }
 
 // ─── Display Helpers ─────────────────────────────────────
@@ -113,33 +165,44 @@ export function cardDisplayName(s: CardStr): string {
  * Compare player hand vs dealer hand (Vietnamese Xì Dách rules).
  *
  * Priority:
- *   1. Ngũ Linh (5 cards ≤ 21) beats non-Ngũ Linh
- *   2. Both Ngũ Linh → lower score wins, equal = draw
- *   3. Bust always loses
- *   4. Higher score wins
+ *   1. Xì Bàn (2 Aces) x3
+ *   2. Xì Dách (Ace + 10/J/Q/K) x2
+ *   3. Ngũ Linh (5 cards ≤ 21)
+ *   4. Normal: highest score ≤ 21 wins
+ *   5. Bust always loses
  */
 export function compareHands(
+    playerCards: CardStr[],
+    dealerCards: CardStr[],
     playerScore: number,
     dealerScore: number,
     playerBust: boolean,
     dealerBust: boolean,
-    playerNguLinh: boolean = false,
-    dealerNguLinh: boolean = false,
-): 'win' | 'lose' | 'draw' {
-    // Ngũ Linh takes priority
-    if (playerNguLinh && !dealerNguLinh) return 'win'
-    if (!playerNguLinh && dealerNguLinh) return 'lose'
-    if (playerNguLinh && dealerNguLinh) {
-        // Both Ngũ Linh — lower score wins
-        if (playerScore < dealerScore) return 'win'
-        if (playerScore > dealerScore) return 'lose'
-        return 'draw'
+): CompareResult {
+    const playerRank = getHandRank(playerCards)
+    const dealerRank = getHandRank(dealerCards)
+    const playerMult = getMultiplier(playerCards)
+    const dealerMult = getMultiplier(dealerCards)
+
+    // Special hands comparison
+    if (playerRank > 1 || dealerRank > 1) {
+        if (playerRank > dealerRank) return { outcome: 'win', multiplier: playerMult }
+        if (playerRank < dealerRank) return { outcome: 'lose', multiplier: dealerMult }
+        // Same rank special hands
+        if (playerRank >= 3) {
+            // Both Xì Dách or both Xì Bàn → draw
+            return { outcome: 'draw', multiplier: 1 }
+        }
+        // Both Ngũ Linh → lower score wins
+        if (playerScore < dealerScore) return { outcome: 'win', multiplier: 1 }
+        if (playerScore > dealerScore) return { outcome: 'lose', multiplier: 1 }
+        return { outcome: 'draw', multiplier: 1 }
     }
 
     // Normal comparison
-    if (playerBust) return 'lose'
-    if (dealerBust) return 'win'
-    if (playerScore > dealerScore) return 'win'
-    if (playerScore < dealerScore) return 'lose'
-    return 'draw'
+    if (playerBust) return { outcome: 'lose', multiplier: 1 }
+    if (dealerBust) return { outcome: 'win', multiplier: 1 }
+    if (playerScore > dealerScore) return { outcome: 'win', multiplier: 1 }
+    if (playerScore < dealerScore) return { outcome: 'lose', multiplier: 1 }
+    return { outcome: 'draw', multiplier: 1 }
 }

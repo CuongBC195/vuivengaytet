@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { supabase } from '@/lib/supabase'
-import { createDeck, calculateScore, isBust, isNguLinh, compareHands } from '@/lib/xidach-logic'
-import type { XiDachGame, XiDachPlayerState, XiDachPhase, CardStr } from '@/types/game'
+import { createDeck, calculateScore, isBust, isNguLinh, isXiDach, isXiBan, compareHands } from '@/lib/xidach-logic'
+import type { XiDachGame, XiDachPlayerState, XiDachPhase, CardStr, CompareResult } from '@/types/game'
 import type { RealtimePostgresChangesPayload } from '@supabase/supabase-js'
 
 export function useXiDach(roomId: string, playerId: string) {
@@ -157,27 +157,63 @@ export function useXiDach(roomId: string, playerId: string) {
         for (const pid of playerIds) {
             const cards = [deck[deckIdx++], deck[deckIdx++]]
             const score = calculateScore(cards)
-            players[pid] = { cards, status: 'playing', score, name: game.players[pid]?.name }
+            const hasSpecial = isXiDach(cards) || isXiBan(cards)
+            players[pid] = {
+                cards,
+                status: hasSpecial ? 'stand' : 'playing',
+                score,
+                name: game.players[pid]?.name,
+                // Auto-reveal special hands for everyone to see
+                revealed_cards: hasSpecial ? [0, 1] : undefined,
+            }
         }
 
         // Deal 2 cards to dealer
         const dealerCards = [deck[deckIdx++], deck[deckIdx++]]
+        const dealerHasSpecial = isXiDach(dealerCards) || isXiBan(dealerCards)
         const remainingDeck = deck.slice(deckIdx)
 
-        // First player's turn
-        const firstPlayer = playerIds[0]
+        // Check if all players have special hands (auto-stand)
+        const allPlayersSpecial = playerIds.every(pid => players[pid].status === 'stand')
+
+        // If dealer also has special → skip straight to result
+        // If all players are special but dealer isn't → go to dealer_turn
+        // Otherwise → first non-special player's turn
+        let firstPlayer: string | null = null
+        let initialPhase: XiDachPhase = 'player_turns'
+
+        if (allPlayersSpecial && dealerHasSpecial) {
+            // Everyone has special hands → go straight to result
+            initialPhase = 'result'
+            firstPlayer = null
+        } else if (allPlayersSpecial) {
+            // All players special, dealer plays
+            initialPhase = 'dealer_turn'
+            firstPlayer = game.dealer_id
+        } else {
+            // Find first player still playing
+            firstPlayer = playerIds.find(pid => players[pid].status === 'playing') || null
+        }
+
+        const updateData: Record<string, unknown> = {
+            deck: remainingDeck,
+            players,
+            dealer_cards: dealerCards,
+            dealer_status: dealerHasSpecial ? 'stand' : 'waiting',
+            current_turn: firstPlayer,
+            phase: initialPhase,
+            results: {},
+        }
+
+        // If going straight to result, compute results now
+        if (initialPhase === 'result') {
+            const dealerScore = calculateScore(dealerCards)
+            updateData.results = resolveGame(players, dealerScore, false, dealerCards)
+        }
 
         await supabase
             .from('xidach_games')
-            .update({
-                deck: remainingDeck,
-                players,
-                dealer_cards: dealerCards,
-                dealer_status: 'waiting',
-                current_turn: firstPlayer,
-                phase: 'player_turns',
-                results: {},
-            })
+            .update(updateData)
             .eq('id', roomId)
     }, [game, isDealer, roomId])
 
@@ -308,8 +344,7 @@ export function useXiDach(roomId: string, playerId: string) {
 
         const dealerScore = calculateScore(game.dealer_cards)
         const dealerBust = dealerScore > 21
-        const dealerNL = isNguLinh(game.dealer_cards)
-        const results = resolveGame(game.players, dealerScore, dealerBust, dealerNL, game.dealer_cards)
+        const results = resolveGame(game.players, dealerScore, dealerBust, game.dealer_cards)
 
         await supabase
             .from('xidach_games')
@@ -402,14 +437,12 @@ function resolveGame(
     players: Record<string, XiDachPlayerState>,
     dealerScore: number,
     dealerBust: boolean,
-    dealerNguLinh: boolean,
-    dealerCards: string[],
-): Record<string, string> {
-    const results: Record<string, string> = {}
+    dealerCards: CardStr[],
+): Record<string, CompareResult> {
+    const results: Record<string, CompareResult> = {}
     for (const [pid, player] of Object.entries(players)) {
         const playerBust = player.status === 'bust'
-        const playerNL = isNguLinh(player.cards)
-        results[pid] = compareHands(player.score, dealerScore, playerBust, dealerBust, playerNL, dealerNguLinh)
+        results[pid] = compareHands(player.cards, dealerCards, player.score, dealerScore, playerBust, dealerBust)
     }
     return results
 }

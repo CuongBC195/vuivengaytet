@@ -34,6 +34,11 @@ export type XiDachDealerStatus = 'waiting' | 'playing' | 'stand' | 'bust'
 export type XiDachPhase = 'waiting' | 'dealing' | 'player_turns' | 'dealer_turn' | 'dealer_done' | 'result'
 export type XiDachResult = 'win' | 'lose' | 'draw'
 
+export interface CompareResult {
+    outcome: XiDachResult
+    multiplier: number // 1 = normal, 2 = Xì Dách, 3 = Xì Bàn
+}
+
 export interface XiDachPlayerState {
     cards: CardStr[]
     status: XiDachPlayerStatus
