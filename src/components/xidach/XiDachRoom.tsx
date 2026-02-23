@@ -376,7 +376,7 @@ export function XiDachRoom({ roomId }: XiDachRoomProps) {
                 onCardClick={getCardClickHandler(o.id, false, o.revealedCards)}
             />
             {/* Per-player reveal button for dealer (only when player is done) */}
-            {isDealer && !o.isDealerSeat && !isPlayerFullyRevealed(o) && o.cards.length > 0 && o.status === 'stand' && !o.revealedCards?.length && (
+            {isDealer && !o.isDealerSeat && !isPlayerFullyRevealed(o) && o.cards.length > 0 && (o.status === 'stand' || o.status === 'bust') && !o.revealedCards?.length && (
                 <button
                     onClick={() => revealPlayer(o.id)}
                     className="flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-bold bg-white/15 text-white/80 hover:bg-white/25 transition-colors"
