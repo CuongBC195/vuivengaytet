@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { useXiDach } from '@/hooks/use-xidach'
 import { PlayingCard } from './PlayingCard'
 import { Button } from '@/components/ui/button'
-import { calculateScore, getHandLabel } from '@/lib/xidach-logic'
+import { calculateScore, getHandLabel, isXiDach, isXiBan } from '@/lib/xidach-logic'
 import {
     Copy, Volume2, VolumeX, Users, Clock, RefreshCw,
     Gamepad2, CircleDot, Crown, Eye, Target, Hand, XCircle,
@@ -305,6 +305,7 @@ export function XiDachRoom({ roomId }: XiDachRoomProps) {
 
     // Dealer seat (if I'm not the dealer)
     if (!isDealer) {
+        const dealerSpecial = isXiDach(game.dealer_cards) || isXiBan(game.dealer_cards)
         others.push({
             id: game.dealer_id,
             name: 'Cái',
@@ -313,7 +314,7 @@ export function XiDachRoom({ roomId }: XiDachRoomProps) {
             isCurrentTurn: phase === 'dealer_turn',
             status: game.dealer_status,
             score: calculateScore(game.dealer_cards),
-            revealedCards: [],
+            revealedCards: dealerSpecial ? [0, 1] : [],
         })
     }
 
